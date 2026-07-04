@@ -1,0 +1,93 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "id": 10,
+      "options": {"colorMode": "value", "graphMode": "area"},
+      "targets": [{"expr": "oep_events_consumed_total", "refId": "A"}],
+      "title": "Total Consumed",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "id": 11,
+      "options": {"colorMode": "value", "graphMode": "area"},
+      "targets": [{"expr": "oep_events_inserted_total", "refId": "A"}],
+      "title": "Total Inserted",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+      "id": 12,
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "targets": [{"expr": "oep_consumer_lag", "refId": "A"}],
+      "title": "Consumer Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
+      "id": 13,
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "targets": [{"expr": "oep_events_failed_total", "refId": "A"}],
+      "title": "Failed Events",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+      "id": 1,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "targets": [
+        {"expr": "rate(oep_events_consumed_total[1m])", "legendFormat": "consumed/sec", "refId": "A"},
+        {"expr": "rate(oep_events_inserted_total[1m])", "legendFormat": "inserted/sec", "refId": "B"}
+      ],
+      "title": "Pipeline Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+      "id": 2,
+      "targets": [
+        {"expr": "oep_consumer_lag", "legendFormat": "lag", "refId": "A"}
+      ],
+      "title": "Consumer Lag (time series)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
+      "id": 4,
+      "targets": [
+        {"expr": "oep_last_batch_size", "legendFormat": "batch size", "refId": "A"}
+      ],
+      "title": "Last Insert Batch Size",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 39,
+  "tags": ["dataops", "kafka", "clickhouse"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "Order Events Pipeline",
+  "uid": "order-events-pipeline",
+  "version": 2
+}

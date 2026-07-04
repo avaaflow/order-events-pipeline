@@ -1,0 +1,29 @@
+stages:
+  - lint
+  - test
+  - validate
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+lint:
+  stage: lint
+  image: python:3.11-slim
+  script:
+    - pip install ruff
+    - ruff check .
+
+test:
+  stage: test
+  image: python:3.11-slim
+  script:
+    - pip install -r requirements.txt
+    - pytest tests/ -v
+
+validate:
+  stage: validate
+  image: docker:24
+  services:
+    - docker:24-dind
+  script:
+    - docker compose config

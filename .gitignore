@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+venv/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Airflow
+airflow/logs/
+airflow/airflow.db
+
+# Data (real datasets — never commit)
+data/raw/
+data/divar/
+*.csv
+*.parquet
+!data/.gitkeep
+
+# Docker
+docker-compose.override.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+.consumer.pid
+data/*.db

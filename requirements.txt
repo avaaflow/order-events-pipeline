@@ -1,0 +1,11 @@
+faker==24.4.0
+kafka-python==2.0.6
+clickhouse-connect==0.7.8
+prometheus-client==0.20.0
+python-dotenv==1.0.1
+psycopg2-binary==2.9.9
+requests==2.31.0
+
+# dev / test
+pytest==8.1.1
+ruff==0.3.4

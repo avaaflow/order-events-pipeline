@@ -1,0 +1,187 @@
+# Host networking — NO bridge network (data_ops_default), safe for VPN/proxy.
+# Services bind directly to localhost, same as event-ticketing without extra Docker NAT.
+
+x-build-args: &build-args
+  PIP_PROXY: http://proxy-us-p3.kavosh.org:26
+
+services:
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: oep-kafka
+    network_mode: host
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@127.0.0.1:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server 127.0.0.1:9092 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3
+    container_name: oep-clickhouse
+    network_mode: host
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./clickhouse/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    mem_limit: 2g
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  consumer:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args: *build-args
+    container_name: oep-consumer
+    network_mode: host
+    command: python consumers/clickhouse_sink.py
+    volumes:
+      - .:/app
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: 127.0.0.1:9092
+      KAFKA_TOPIC: order_events
+      CLICKHOUSE_HOST: 127.0.0.1
+      CLICKHOUSE_PORT: 8123
+      CLICKHOUSE_DATABASE: orders
+      CLICKHOUSE_TABLE: events_raw
+      CONSUMER_GROUP: clickhouse-sink
+      CONSUMER_BATCH_SIZE: 1000
+      METRICS_PORT: 8000
+    depends_on:
+      kafka:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    restart: unless-stopped
+
+  prometheus:
+    profiles: ["monitoring"]
+    image: prom/prometheus:v2.51.0
+    container_name: oep-prometheus
+    network_mode: host
+    volumes:
+      - ./monitoring/prometheus-host.yml:/etc/prometheus/prometheus.yml:ro
+    mem_limit: 512m
+
+  grafana:
+    profiles: ["monitoring"]
+    image: grafana/grafana:10.4.0
+    container_name: oep-grafana
+    network_mode: host
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_DEFAULT_THEME: dark
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_SERVER_HTTP_PORT: 3000
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    mem_limit: 512m
+
+  postgres:
+    profiles: ["airflow"]
+    image: postgres:15-alpine
+    container_name: oep-postgres
+    network_mode: host
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+      PGPORT: 5433
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -p 5433"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  airflow-init:
+    profiles: ["airflow"]
+    image: apache/airflow:2.8.4-python3.11
+    container_name: oep-airflow-init
+    network_mode: host
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &airflow-env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@127.0.0.1:5433/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "false"
+      AIRFLOW_CONN_POSTGRES_DEFAULT: postgresql://airflow:airflow@127.0.0.1:5433/airflow
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    user: "50000:0"
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin --password admin \
+          --firstname Admin --lastname User \
+          --role Admin --email admin@example.com || true
+
+  airflow-webserver:
+    profiles: ["airflow"]
+    image: apache/airflow:2.8.4-python3.11
+    container_name: oep-airflow-web
+    network_mode: host
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *airflow-env
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    user: "50000:0"
+    mem_limit: 2g
+    command: webserver
+
+  airflow-scheduler:
+    profiles: ["airflow"]
+    image: apache/airflow:2.8.4-python3.11
+    container_name: oep-airflow-scheduler
+    network_mode: host
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+    environment:
+      <<: *airflow-env
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+    user: "50000:0"
+    mem_limit: 1g
+    command: scheduler
+
+volumes:
+  clickhouse_data:
+  postgres_data:
+  airflow_logs:
