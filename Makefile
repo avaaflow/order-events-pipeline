@@ -1,18 +1,19 @@
 .PHONY: help setup up down logs producer consume consume-docker demo test lint clean query \
-        monitoring airflow airflow-logs status health
+        monitoring airflow airflow-logs status health labs lag duplicates lab-dlq \
+        consume-slow consume-2 consume-fast-commit lab-producer-burst
 
 help:
-	@echo "Order Events Pipeline (Docker — event-ticketing style)"
+	@echo "Order Events Pipeline"
 	@echo ""
-	@echo "  make setup           - venv + pip install"
-	@echo "  make up              - kafka + clickhouse only (2 containers)"
-	@echo "  make consume         - consumer on host (terminal 2)"
-	@echo "  make producer        - send fake events (terminal 3)"
-	@echo "  make demo            - full end-to-end test"
-	@echo "  make monitoring      - add Grafana + Prometheus"
-	@echo "  make airflow         - add Airflow (heavy — run separately)"
-	@echo "  make status          - container status"
-	@echo "  make down            - stop everything"
+	@echo "  Core:  make up | consume | producer | query | monitoring"
+	@echo "  Labs:  make labs | lag | duplicates | consume-slow | consume-2"
+
+# Bypass corporate proxy for local Docker services
+export NO_PROXY := 127.0.0.1,localhost
+export no_proxy := 127.0.0.1,localhost
+
+CURL := curl --noproxy '*' -s
+CH_URL := http://127.0.0.1:8123
 
 setup:
 	python3 -m venv .venv
@@ -46,6 +47,10 @@ monitoring:
 	@echo "  Then run make producer to generate metrics."
 	@echo "  Check Prometheus targets: http://127.0.0.1:9090/targets"
 
+monitoring-reload:
+	docker compose --profile monitoring restart prometheus grafana
+	@echo "Reloaded. Restart consumer too: Ctrl+C then make consume"
+
 airflow:
 	docker compose --profile airflow down 2>/dev/null || true
 	rm -rf airflow/logs
@@ -78,7 +83,59 @@ producer:
 consume:
 	PYTHONPATH=. .venv/bin/python consumers/clickhouse_sink.py
 
-demo:
+consume-slow:
+	SIMULATE_SLOW_MS=3000 CONSUMER_BATCH_SIZE=500 PYTHONPATH=. .venv/bin/python consumers/clickhouse_sink.py
+
+consume-2:
+	CONSUMER_ID=consumer-2 METRICS_PORT=8001 PYTHONPATH=. .venv/bin/python consumers/clickhouse_sink.py
+
+consume-fast-commit:
+	CONSUMER_AUTO_COMMIT=true PYTHONPATH=. .venv/bin/python consumers/clickhouse_sink.py
+
+lab-producer-burst:
+	PRODUCER_TOTAL_EVENTS=50000 PRODUCER_RATE=8000 PYTHONPATH=. .venv/bin/python producers/stream_orders.py
+
+lab-dlq:
+	PYTHONPATH=. .venv/bin/python scripts/lab_dlq.py
+
+lag:
+	PYTHONPATH=. .venv/bin/python scripts/kafka_lag.py
+
+duplicates:
+	PYTHONPATH=. .venv/bin/python scripts/check_duplicates.py
+
+labs:
+	@echo ""
+	@echo "=== Kafka Challenge Labs ==="
+	@echo ""
+	@echo "Lab 1 — Consumer crash + lag spike"
+	@echo "  T1: make monitoring && make consume"
+	@echo "  T2: make lab-producer-burst"
+	@echo "  T1: Ctrl+C (kill consumer)"
+	@echo "  T2: make lab-producer-burst"
+	@echo "  T3: make lag          → lag بالا"
+	@echo "  T1: make consume      → lag پایین"
+	@echo "  Grafana: Consumer Lag panel"
+	@echo ""
+	@echo "Lab 2 — Slow consumer (producer faster than consumer)"
+	@echo "  T1: make consume-slow"
+	@echo "  T2: make lab-producer-burst"
+	@echo "  Grafana: lag بالا می‌رود"
+	@echo ""
+	@echo "Lab 3 — Rebalance (two consumers)"
+	@echo "  T1: make consume"
+	@echo "  T2: make consume-2"
+	@echo "  Log: REBALANCE → assigned partitions"
+	@echo ""
+	@echo "Lab 4 — At-least-once duplicates"
+	@echo "  T1: make consume-fast-commit"
+	@echo "  T2: make lab-producer-burst"
+	@echo "  T1: Ctrl+C وسط producer"
+	@echo "  T1: make consume-fast-commit"
+	@echo "  make duplicates"
+	@echo ""
+	@echo "Docs: docs/KAFKA_LABS.md"
+	@echo ""
 	$(MAKE) up
 	@echo "=== Starting consumer (background) ==="
 	@PYTHONPATH=. .venv/bin/python consumers/clickhouse_sink.py & echo $$! > .consumer.pid
@@ -89,17 +146,17 @@ demo:
 	@kill `cat .consumer.pid` 2>/dev/null || true
 	@rm -f .consumer.pid
 	@echo "=== Row count ==="
-	curl -s "http://localhost:8123/?query=SELECT%20count()%20FROM%20orders.events_raw"
+	$(CURL) "$(CH_URL)/?query=SELECT%20count()%20FROM%20orders.events_raw"
 	@echo ""
 	@echo "=== Sample ==="
-	curl -s "http://localhost:8123/?query=SELECT%20event_type,city,amount%20FROM%20orders.events_raw%20LIMIT%205%20FORMAT%20Pretty"
+	$(CURL) "$(CH_URL)/?query=SELECT%20event_type,city,amount%20FROM%20orders.events_raw%20LIMIT%205%20FORMAT%20Pretty"
 
 query:
 	@echo "--- Total ---"
-	curl -s "http://localhost:8123/?query=SELECT%20count()%20FROM%20orders.events_raw"
+	$(CURL) "$(CH_URL)/?query=SELECT%20count()%20FROM%20orders.events_raw"
 	@echo ""
 	@echo "--- By type ---"
-	curl -s "http://localhost:8123/?query=SELECT%20event_type,count()%20c%20FROM%20orders.events_raw%20GROUP%20BY%20event_type%20ORDER%20BY%20c%20DESC%20FORMAT%20Pretty"
+	$(CURL) "$(CH_URL)/?query=SELECT%20event_type,count()%20c%20FROM%20orders.events_raw%20GROUP%20BY%20event_type%20ORDER%20BY%20c%20DESC%20FORMAT%20Pretty"
 
 test:
 	.venv/bin/pytest tests/ -v

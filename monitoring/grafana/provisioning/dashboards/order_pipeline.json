@@ -2,14 +2,94 @@
   "annotations": {"list": []},
   "editable": true,
   "fiscalYearStartMonth": 0,
-  "graphTooltip": 0,
+  "graphTooltip": 1,
   "id": null,
   "links": [],
   "panels": [
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {"unit": "ops", "decimals": 1},
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "id": 20,
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "rate(oep_orders_produced_total[1m])", "refId": "A"}],
+      "title": "Orders/sec",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "yellow", "value": 1000},
+              {"color": "red", "value": 10000}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+      "id": 21,
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "oep_consumer_lag", "refId": "A"}],
+      "title": "Consumer Lag",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "red", "value": 1}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "id": 22,
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "oep_events_failed_total", "refId": "A"}],
+      "title": "Failed Events",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 1}
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "id": 23,
+      "options": {"colorMode": "value", "graphMode": "area", "reduceOptions": {"calcs": ["lastNotNull"]}},
+      "targets": [{"expr": "oep_dlq_events_total", "refId": "A"}],
+      "title": "Dead Letter Queue",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-      "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
       "id": 10,
       "options": {"colorMode": "value", "graphMode": "area"},
       "targets": [{"expr": "oep_events_consumed_total", "refId": "A"}],
@@ -19,7 +99,7 @@
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-      "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
       "id": 11,
       "options": {"colorMode": "value", "graphMode": "area"},
       "targets": [{"expr": "oep_events_inserted_total", "refId": "A"}],
@@ -28,35 +108,15 @@
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-      "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
-      "id": 12,
-      "options": {"colorMode": "value", "graphMode": "none"},
-      "targets": [{"expr": "oep_consumer_lag", "refId": "A"}],
-      "title": "Consumer Lag",
-      "type": "stat"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
-      "gridPos": {"h": 4, "w": 6, "x": 18, "y": 0},
-      "id": 13,
-      "options": {"colorMode": "value", "graphMode": "none"},
-      "targets": [{"expr": "oep_events_failed_total", "refId": "A"}],
-      "title": "Failed Events",
-      "type": "stat"
-    },
-    {
-      "datasource": {"type": "prometheus", "uid": "prometheus"},
       "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
-      "id": 1,
+      "id": 24,
       "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
       "targets": [
-        {"expr": "rate(oep_events_consumed_total[1m])", "legendFormat": "consumed/sec", "refId": "A"},
+        {"expr": "rate(oep_orders_produced_total[1m])", "legendFormat": "produced/sec", "refId": "A"},
         {"expr": "rate(oep_events_inserted_total[1m])", "legendFormat": "inserted/sec", "refId": "B"}
       ],
-      "title": "Pipeline Throughput",
+      "title": "Orders/sec (time series)",
       "type": "timeseries"
     },
     {
@@ -64,21 +124,75 @@
       "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
       "id": 2,
-      "targets": [
-        {"expr": "oep_consumer_lag", "legendFormat": "lag", "refId": "A"}
-      ],
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "targets": [{"expr": "oep_consumer_lag", "legendFormat": "lag", "refId": "A"}],
       "title": "Consumer Lag (time series)",
       "type": "timeseries"
     },
     {
       "datasource": {"type": "prometheus", "uid": "prometheus"},
-      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 12},
-      "id": 4,
+      "id": 25,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
       "targets": [
-        {"expr": "oep_last_batch_size", "legendFormat": "batch size", "refId": "A"}
+        {
+          "expr": "oep_clickhouse_insert_last_seconds",
+          "legendFormat": "last insert",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(oep_clickhouse_insert_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
       ],
-      "title": "Last Insert Batch Size",
+      "title": "ClickHouse Latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 12},
+      "id": 26,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "targets": [
+        {
+          "expr": "oep_batch_duration_last_seconds",
+          "legendFormat": "last batch",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(oep_batch_duration_seconds_bucket[1m])) by (le))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "title": "Batch Duration",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 20},
+      "id": 5,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "targets": [
+        {"expr": "oep_events_failed_total", "legendFormat": "failed total", "refId": "A"}
+      ],
+      "title": "Failed Events (time series)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 20},
+      "id": 27,
+      "options": {"legend": {"displayMode": "list", "placement": "bottom"}},
+      "targets": [
+        {"expr": "oep_dlq_events_total", "legendFormat": "dlq total", "refId": "A"}
+      ],
+      "title": "Dead Letter Queue (time series)",
       "type": "timeseries"
     }
   ],
@@ -89,5 +203,5 @@
   "time": {"from": "now-1h", "to": "now"},
   "title": "Order Events Pipeline",
   "uid": "order-events-pipeline",
-  "version": 2
+  "version": 4
 }

@@ -2,9 +2,6 @@
 
 # Order Events Pipeline
 
-پروژه DataOps — pipeline رویدادهای سفارش غذا (آماده‌سازی مصاحبه اسنپ‌فود).
-
-> راهنمای کامل فارسی: [docs/GUIDE_FA.md](docs/GUIDE_FA.md)
 
 ## معماری
 
@@ -66,7 +63,6 @@ make query          # چک داده
 ├── clickhouse/       # schema SQL
 ├── airflow/dags/     # DAGs
 ├── monitoring/       # Grafana + Prometheus
-├── docs/GUIDE_FA.md  # راهنمای کامل فارسی
 └── docker-compose.yml
 ```
 
