@@ -26,9 +26,6 @@ data/divar/
 *.parquet
 !data/.gitkeep
 
-# Docker
-docker-compose.override.yml
-
 # OS
 .DS_Store
 Thumbs.db
@@ -38,5 +35,11 @@ Thumbs.db
 .consumer.pid
 data/*.db
 
-# Local Docker Compose overrides (proxy, machine-specific settings)
+# -----------------------------------------------------------------------------
+# LOCAL-ONLY (machine / corporate env — do not push)
+# Tracked counterparts: Dockerfile, docker-compose.yml, k8s/*.yaml
+# Examples (safe to commit): *.example
+# -----------------------------------------------------------------------------
+Dockerfile.local
 docker-compose.override.yml
+k8s/local/

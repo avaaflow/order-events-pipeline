@@ -1,5 +1,4 @@
-# Host networking — NO bridge network (data_ops_default), safe for VPN/proxy.
-# Services bind directly to localhost, same as event-ticketing without extra Docker NAT.
+# Host networking: services bind on the host loopback (no Compose bridge network).
 
 services:
   kafka:
@@ -46,7 +45,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      args: *build-args
     container_name: oep-consumer
     network_mode: host
     command: python consumers/clickhouse_sink.py

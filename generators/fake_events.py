@@ -1,4 +1,4 @@
-"""Synthetic food-delivery event generator (Snappfood-like schema)."""
+"""Synthetic food-delivery order event generator."""
 
 from __future__ import annotations
 

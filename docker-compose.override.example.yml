@@ -1,0 +1,10 @@
+# Example Compose override (copy to docker-compose.override.yml — gitignored).
+# Docker Compose merges this file automatically with docker-compose.yml.
+services:
+  consumer:
+    build:
+      context: .
+      dockerfile: Dockerfile.local
+      args:
+        PIP_PROXY: ""
+        PIP_INDEX_URL: https://pypi.org/simple

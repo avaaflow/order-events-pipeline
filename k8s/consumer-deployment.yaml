@@ -18,14 +18,13 @@ spec:
     spec:
       containers:
         - name: consumer
-          image: repo-nexus.kavosh.org:8100/order-events-consumer:1.0
-          # Dockerfile has no CMD — without this the container exits 0 immediately (CrashLoopBackOff).
+          # Replace with your registry before deploying
+          image: your-registry/order-events-consumer:1.0
           workingDir: /app
           command: ["python", "consumers/clickhouse_sink.py"]
           ports:
             - name: metrics
               containerPort: 8000
-          # ConfigMap provides runtime configuration (Kafka, ClickHouse, batch, metrics port).
           env:
             - name: PYTHONPATH
               value: "/app"
