@@ -1,0 +1,36 @@
+# ConfigMap: KRaft runtime settings for the single-node Kafka broker.
+# Consumers connect via: kafka-0.kafka:9092 (stable StatefulSet DNS via headless Service).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-config
+  labels:
+    app: kafka
+data:
+  # --- KRaft (no ZooKeeper) ---
+  KAFKA_NODE_ID: "1"
+  KAFKA_PROCESS_ROLES: "broker,controller"
+  # Quorum voter must use headless DNS: <pod-name>.<service-name>
+  KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka-0.kafka:9093"
+  KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+
+  # --- Listeners ---
+  # PLAINTEXT = client traffic (producers/consumers)
+  # CONTROLLER = KRaft internal quorum
+  KAFKA_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+  KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://kafka-0.kafka:9092"
+  KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT"
+  KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+
+  # Persist logs on the PVC mounted at /var/lib/kafka/data
+  KAFKA_LOG_DIRS: "/var/lib/kafka/data"
+
+  # Single-replica lab settings (matches docker-compose)
+  KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+  KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+  KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+  KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+  KAFKA_NUM_PARTITIONS: "3"
+
+  # Fixed cluster id so PVC restarts keep the same KRaft cluster identity
+  CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"

@@ -1,9 +1,6 @@
 # Host networking — NO bridge network (data_ops_default), safe for VPN/proxy.
 # Services bind directly to localhost, same as event-ticketing without extra Docker NAT.
 
-x-build-args: &build-args
-  PIP_PROXY: http://proxy-us-p3.kavosh.org:26
-
 services:
   kafka:
     image: apache/kafka:3.8.0

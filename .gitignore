@@ -37,3 +37,6 @@ Thumbs.db
 *.log
 .consumer.pid
 data/*.db
+
+# Local Docker Compose overrides (proxy, machine-specific settings)
+docker-compose.override.yml

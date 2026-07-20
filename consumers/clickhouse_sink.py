@@ -10,7 +10,7 @@ import sys
 import threading
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 
@@ -149,30 +149,203 @@ def parse_event(raw: dict[str, Any]) -> list[Any]:
 def _send_dlq(
     dlq_producer: KafkaProducer,
     dlq_topic: str,
-    message: Any,
-    reason: str,
-) -> None:
+    *,
+    original_event: Any,
+    error: str,
+    retry_count: int,
+    key: Any = None,
+    topic: str | None = None,
+    partition: int | None = None,
+    offset: int | None = None,
+) -> bool:
+    """Publish one event to DLQ. Returns True only if Kafka ack succeeds."""
     envelope = {
-        "reason": reason,
-        "topic": message.topic,
-        "partition": message.partition,
-        "offset": message.offset,
-        "value": message.value,
+        "original_event": original_event,
+        "error": error,
+        "retry_count": retry_count,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "source_topic": topic,
+        "partition": partition,
+        "offset": offset,
     }
-    dlq_producer.send(
-        dlq_topic,
-        key=message.key,
-        value=json.dumps(envelope, ensure_ascii=False).encode("utf-8"),
+    try:
+        future = dlq_producer.send(
+            dlq_topic,
+            key=key,
+            value=json.dumps(envelope, ensure_ascii=False, default=str).encode("utf-8"),
+        )
+        future.get(timeout=10)
+        DLQ_EVENTS.inc()
+        logger.warning(
+            "DLQ → %s (partition=%s offset=%s retries=%d): %s",
+            dlq_topic,
+            partition,
+            offset,
+            retry_count,
+            error,
+        )
+        return True
+    except Exception as exc:
+        logger.error("DLQ publish failed: %s", exc)
+        return False
+
+
+def _commit_offsets(
+    consumer: KafkaConsumer,
+    pending_commit: dict[TopicPartition, int],
+    auto_commit: bool,
+) -> bool:
+    if auto_commit or not pending_commit:
+        return True
+    try:
+        offsets = {
+            tp: OffsetAndMetadata(offset + 1, "")
+            for tp, offset in pending_commit.items()
+        }
+        consumer.commit(offsets=offsets)
+        logger.info(
+            "Manual commit → offsets %s",
+            {f"p{tp.partition}": meta.offset for tp, meta in offsets.items()},
+        )
+        return True
+    except Exception as exc:
+        EVENTS_FAILED.inc(len(pending_commit))
+        logger.error("Kafka offset commit failed: %s", exc)
+        return False
+
+
+def _insert_with_retry(
+    client: Any,
+    table: str,
+    columns: list[str],
+    batch: list[list[Any]],
+    max_retries: int,
+    retry_base_ms: int,
+) -> tuple[bool, int, str | None]:
+    """
+    Attempt ClickHouse insert with exponential backoff.
+
+    Returns (success, attempts_used, last_error).
+    attempts_used counts insert tries (1..max_retries).
+    """
+    last_error: str | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            insert_start = time.perf_counter()
+            client.insert(table, batch, column_names=columns)
+            insert_elapsed = time.perf_counter() - insert_start
+            CLICKHOUSE_INSERT_DURATION.observe(insert_elapsed)
+            CLICKHOUSE_INSERT_LAST.set(insert_elapsed)
+            if attempt > 1:
+                logger.info(
+                    "ClickHouse insert succeeded on attempt %d/%d (%d rows)",
+                    attempt,
+                    max_retries,
+                    len(batch),
+                )
+            return True, attempt, None
+        except Exception as exc:
+            last_error = str(exc)
+            logger.warning(
+                "ClickHouse insert attempt %d/%d failed (%d rows): %s",
+                attempt,
+                max_retries,
+                len(batch),
+                exc,
+            )
+            if attempt < max_retries:
+                delay_s = (retry_base_ms / 1000.0) * (2 ** (attempt - 1))
+                logger.info("Retrying insert in %.2fs (exponential backoff)", delay_s)
+                time.sleep(delay_s)
+    return False, max_retries, last_error
+
+
+def flush_batch(
+    client: Any,
+    table: str,
+    columns: list[str],
+    batch: list[list[Any]],
+    originals: list[dict[str, Any]],
+    consumer: KafkaConsumer,
+    pending_commit: dict[TopicPartition, int],
+    consumer_cfg: Any,
+    dlq_producer: KafkaProducer,
+    dlq_topic: str,
+) -> bool:
+    """
+    Insert batch (with retry) or DLQ on permanent failure, then commit.
+
+    Returns True if the batch was fully handled and offsets may be cleared.
+    Returns False if batch/pending_commit must be kept (insert + DLQ both failed
+    paths that block commit).
+    """
+    if not batch:
+        return True
+
+    batch_start = time.perf_counter()
+
+    if consumer_cfg.simulate_slow_ms > 0:
+        logger.warning("SIMULATE_SLOW: sleeping %dms before insert", consumer_cfg.simulate_slow_ms)
+        time.sleep(consumer_cfg.simulate_slow_ms / 1000)
+
+    ok, attempts, last_error = _insert_with_retry(
+        client,
+        table,
+        columns,
+        batch,
+        max_retries=consumer_cfg.insert_max_retries,
+        retry_base_ms=consumer_cfg.insert_retry_base_ms,
     )
-    dlq_producer.flush(timeout=5)
-    DLQ_EVENTS.inc()
-    logger.warning(
-        "DLQ → %s (partition=%d offset=%d): %s",
-        dlq_topic,
-        message.partition,
-        message.offset,
-        reason,
+
+    if ok:
+        EVENTS_INSERTED.inc(len(batch))
+        BATCH_SIZE_GAUGE.set(len(batch))
+        logger.info("Inserted batch of %d rows", len(batch))
+        if not _commit_offsets(consumer, pending_commit, consumer_cfg.auto_commit):
+            # Insert succeeded but commit failed — do not clear; at-least-once on restart
+            return False
+        batch_elapsed = time.perf_counter() - batch_start
+        BATCH_DURATION.observe(batch_elapsed)
+        BATCH_DURATION_LAST.set(batch_elapsed)
+        return True
+
+    # Permanent insert failure → DLQ every original event; commit only if all succeed
+    EVENTS_FAILED.inc(len(batch))
+    logger.error(
+        "ClickHouse insert failed after %d attempts (%d rows): %s — sending to DLQ",
+        attempts,
+        len(batch),
+        last_error,
     )
+
+    dlq_ok = True
+    for item in originals:
+        published = _send_dlq(
+            dlq_producer,
+            dlq_topic,
+            original_event=item["original_event"],
+            error=last_error or "ClickHouse insert failed",
+            retry_count=attempts,
+            key=item.get("key"),
+            topic=item.get("topic"),
+            partition=item.get("partition"),
+            offset=item.get("offset"),
+        )
+        if not published:
+            dlq_ok = False
+            break
+
+    if not dlq_ok:
+        logger.error("DLQ publish incomplete — offsets will NOT be committed; batch kept")
+        return False
+
+    if not _commit_offsets(consumer, pending_commit, consumer_cfg.auto_commit):
+        return False
+
+    batch_elapsed = time.perf_counter() - batch_start
+    BATCH_DURATION.observe(batch_elapsed)
+    BATCH_DURATION_LAST.set(batch_elapsed)
+    return True
 
 
 def main() -> int:
@@ -239,14 +412,16 @@ def main() -> int:
     ]
     table = f"{ch_cfg.database}.{ch_cfg.table}"
     batch: list[list[Any]] = []
+    originals: list[dict[str, Any]] = []
     pending_commit: dict[TopicPartition, int] = {}
 
     logger.info(
-        "Consumer '%s' | group=%s | auto_commit=%s | slow_ms=%d",
+        "Consumer '%s' | group=%s | auto_commit=%s | slow_ms=%d | insert_retries=%d",
         consumer_cfg.consumer_id,
         consumer_cfg.group_id,
         consumer_cfg.auto_commit,
         consumer_cfg.simulate_slow_ms,
+        consumer_cfg.insert_max_retries,
     )
     logger.info("Consuming '%s' → %s (DLQ: %s)", kafka_cfg.topic, table, kafka_cfg.dlq_topic)
 
@@ -254,93 +429,84 @@ def main() -> int:
         polled = consumer.poll(timeout_ms=1000, max_records=consumer_cfg.batch_size)
         if not polled:
             if batch:
-                _flush_batch(client, table, columns, batch, consumer, pending_commit, consumer_cfg)
-                batch = []
-                pending_commit = {}
+                if flush_batch(
+                    client, table, columns, batch, originals,
+                    consumer, pending_commit, consumer_cfg,
+                    dlq_producer, kafka_cfg.dlq_topic,
+                ):
+                    batch = []
+                    originals = []
+                    pending_commit = {}
             _update_lag(consumer)
             continue
 
         for tp, messages in polled.items():
             for message in messages:
                 EVENTS_CONSUMED.inc()
-                pending_commit[tp] = message.offset
                 try:
-                    batch.append(parse_event(message.value))
+                    row = parse_event(message.value)
                 except (KeyError, TypeError, ValueError) as exc:
-                    try:
-                        _send_dlq(dlq_producer, kafka_cfg.dlq_topic, message, str(exc))
-                    except Exception as dlq_exc:
+                    published = _send_dlq(
+                        dlq_producer,
+                        kafka_cfg.dlq_topic,
+                        original_event=message.value,
+                        error=str(exc),
+                        retry_count=0,
+                        key=message.key,
+                        topic=message.topic,
+                        partition=message.partition,
+                        offset=message.offset,
+                    )
+                    if published:
+                        pending_commit[tp] = message.offset
+                    else:
                         EVENTS_FAILED.inc()
-                        logger.error("DLQ publish failed: %s", dlq_exc)
+                        logger.error(
+                            "Parse-error DLQ failed — offset %s:%s not committed",
+                            tp.partition,
+                            message.offset,
+                        )
+                    continue
+
+                batch.append(row)
+                originals.append(
+                    {
+                        "original_event": message.value,
+                        "key": message.key,
+                        "topic": message.topic,
+                        "partition": message.partition,
+                        "offset": message.offset,
+                    }
+                )
+                pending_commit[tp] = message.offset
 
                 if len(batch) >= consumer_cfg.batch_size:
-                    _flush_batch(client, table, columns, batch, consumer, pending_commit, consumer_cfg)
-                    batch = []
-                    pending_commit = {}
+                    if flush_batch(
+                        client, table, columns, batch, originals,
+                        consumer, pending_commit, consumer_cfg,
+                        dlq_producer, kafka_cfg.dlq_topic,
+                    ):
+                        batch = []
+                        originals = []
+                        pending_commit = {}
 
         _update_lag(consumer)
 
     if batch:
-        _flush_batch(client, table, columns, batch, consumer, pending_commit, consumer_cfg)
+        if flush_batch(
+            client, table, columns, batch, originals,
+            consumer, pending_commit, consumer_cfg,
+            dlq_producer, kafka_cfg.dlq_topic,
+        ):
+            batch = []
+            originals = []
+            pending_commit = {}
 
     consumer.close()
     dlq_producer.close()
     metrics_server.shutdown()
     logger.info("Consumer stopped cleanly")
     return 0
-
-
-def _flush_batch(
-    client: Any,
-    table: str,
-    columns: list[str],
-    batch: list[list[Any]],
-    consumer: KafkaConsumer,
-    pending_commit: dict[TopicPartition, int],
-    consumer_cfg: Any,
-) -> None:
-    if not batch:
-        return
-
-    batch_start = time.perf_counter()
-
-    if consumer_cfg.simulate_slow_ms > 0:
-        logger.warning("SIMULATE_SLOW: sleeping %dms before insert", consumer_cfg.simulate_slow_ms)
-        time.sleep(consumer_cfg.simulate_slow_ms / 1000)
-
-    try:
-        insert_start = time.perf_counter()
-        client.insert(table, batch, column_names=columns)
-        insert_elapsed = time.perf_counter() - insert_start
-        CLICKHOUSE_INSERT_DURATION.observe(insert_elapsed)
-        CLICKHOUSE_INSERT_LAST.set(insert_elapsed)
-        EVENTS_INSERTED.inc(len(batch))
-        BATCH_SIZE_GAUGE.set(len(batch))
-        logger.info("Inserted batch of %d rows", len(batch))
-    except Exception as exc:
-        EVENTS_FAILED.inc(len(batch))
-        logger.error("ClickHouse insert failed (%d rows): %s", len(batch), exc)
-        return
-
-    if not consumer_cfg.auto_commit and pending_commit:
-        try:
-            offsets = {
-                tp: OffsetAndMetadata(offset + 1, "")
-                for tp, offset in pending_commit.items()
-            }
-            consumer.commit(offsets=offsets)
-            logger.info(
-                "Manual commit → offsets %s",
-                {f"p{tp.partition}": meta.offset for tp, meta in offsets.items()},
-            )
-        except Exception as exc:
-            EVENTS_FAILED.inc(len(batch))
-            logger.error("Kafka offset commit failed (%d rows): %s", len(batch), exc)
-            return
-
-    batch_elapsed = time.perf_counter() - batch_start
-    BATCH_DURATION.observe(batch_elapsed)
-    BATCH_DURATION_LAST.set(batch_elapsed)
 
 
 if __name__ == "__main__":

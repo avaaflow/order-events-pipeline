@@ -1,0 +1,17 @@
+# Service exposes metrics endpoint for Prometheus (ClusterIP scrape target).
+# In-cluster scrape URL: http://clickhouse-consumer:8000/metrics
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-consumer
+  labels:
+    app: clickhouse-consumer
+spec:
+  type: ClusterIP
+  selector:
+    app: clickhouse-consumer
+  ports:
+    - name: metrics
+      port: 8000
+      targetPort: 8000
+      protocol: TCP

@@ -1,0 +1,23 @@
+# Headless Service is required for StatefulSet stable network identity.
+# With clusterIP: None, each Pod gets a DNS name: kafka-0.kafka
+# Used by KRaft quorum (9093) and by clients as bootstrap (9092).
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: kafka
+  ports:
+    - name: plaintext
+      port: 9092
+      targetPort: 9092
+      protocol: TCP
+    - name: controller
+      port: 9093
+      targetPort: 9093
+      protocol: TCP

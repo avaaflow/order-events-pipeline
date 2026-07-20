@@ -1,0 +1,15 @@
+# ConfigMap provides runtime configuration for the ClickHouse Kafka consumer.
+# Pods load these values via envFrom — no hardcoded env in the Deployment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: consumer-config
+  labels:
+    app: clickhouse-consumer
+data:
+  KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+  KAFKA_TOPIC: "order_events"
+  CONSUMER_GROUP: "clickhouse-sink"
+  CLICKHOUSE_HOST: "clickhouse"
+  BATCH_SIZE: "500"
+  METRICS_PORT: "8000"

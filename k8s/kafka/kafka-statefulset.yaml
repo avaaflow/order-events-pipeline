@@ -1,0 +1,84 @@
+# Kafka uses StatefulSet because:
+# 1) Stable pod identity (kafka-0) for KRaft voters and advertised listeners
+# 2) Ordered start/stop for broker lifecycle
+# 3) (Production) volumeClaimTemplates give each pod its own durable disk
+#
+# LAB WORKAROUND: emptyDir instead of PVC — avoids Kavosh storage-quota webhook
+# failures (validate-quota.k8s.io EOF). Data is LOST on pod restart/reschedule.
+# When storage quota works again: uncomment volumeClaimTemplates below and
+# remove the emptyDir volumes section.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  labels:
+    app: kafka
+spec:
+  serviceName: kafka
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      containers:
+        - name: kafka
+          image: repo-nexus.kavosh.org:8100/apache/kafka:3.8.0
+          ports:
+            - name: plaintext
+              containerPort: 9092
+              protocol: TCP
+            - name: controller
+              containerPort: 9093
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: kafka-config
+          volumeMounts:
+            # Broker log dirs + KRaft metadata (see KAFKA_LOG_DIRS in ConfigMap)
+            - name: data
+              mountPath: /var/lib/kafka/data
+          resources:
+            # Placeholders — tune for your cluster / platform quotas
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          readinessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: 9092
+            initialDelaySeconds: 60
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+      # --- Temporary: emptyDir (no PVC / no storage-quota webhook) ---
+      volumes:
+        - name: data
+          emptyDir: {}
+  # --- Production: PersistentVolumeClaim (uncomment when webhook/storage works) ---
+  # volumeClaimTemplates:
+  #   # One PersistentVolumeClaim per StatefulSet pod (data-kafka-0)
+  #   - metadata:
+  #       name: data
+  #       labels:
+  #         app: kafka
+  #     spec:
+  #       accessModes:
+  #         - ReadWriteOnce
+  #       resources:
+  #         requests:
+  #           # Placeholder size — adjust / set storageClassName if needed
+  #           storage: 512Mi
+  #       # storageClassName: ""   # uncomment and set if platform needs an explicit class

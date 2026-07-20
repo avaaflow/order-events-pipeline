@@ -50,6 +50,8 @@ class ConsumerConfig:
     session_timeout_ms: int
     max_poll_interval_ms: int
     max_poll_records: int
+    insert_max_retries: int
+    insert_retry_base_ms: int
 
 
 def get_kafka_config() -> KafkaConfig:
@@ -88,4 +90,6 @@ def get_consumer_config() -> ConsumerConfig:
         session_timeout_ms=int(os.getenv("SESSION_TIMEOUT_MS", "45000")),
         max_poll_interval_ms=int(os.getenv("MAX_POLL_INTERVAL_MS", "300000")),
         max_poll_records=int(os.getenv("MAX_POLL_RECORDS", "500")),
+        insert_max_retries=int(os.getenv("INSERT_MAX_RETRIES", "3")),
+        insert_retry_base_ms=int(os.getenv("INSERT_RETRY_BASE_MS", "500")),
     )
